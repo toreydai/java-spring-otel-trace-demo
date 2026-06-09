@@ -1,0 +1,99 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: default
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    
+    processors:
+      batch:
+        timeout: 1s
+        send_batch_size: 1024
+      memory_limiter:
+        limit_mib: 512
+        check_interval: 1s
+    
+    exporters:
+      awsxray:
+        region: ap-southeast-1
+      logging:
+        verbosity: normal
+    
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [awsxray, logging]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      serviceAccountName: adot-collector  # 使用 IRSA 时添加此行
+      containers:
+      - name: otel-collector
+        image: public.ecr.aws/aws-observability/aws-otel-collector:v0.42.0
+        command:
+          - "/awscollector"
+          - "--config=/etc/otel-agent-config/otel-collector-config.yaml"
+        env:
+        - name: AWS_REGION
+          value: "ap-southeast-1"
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        ports:
+        - containerPort: 4317
+          name: otlp-grpc
+        - containerPort: 4318
+          name: otlp-http
+        volumeMounts:
+        - name: otel-collector-config-vol
+          mountPath: /etc/otel-agent-config
+          readOnly: true
+      volumes:
+      - name: otel-collector-config-vol
+        configMap:
+          name: otel-collector-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: default
+spec:
+  selector:
+    app: otel-collector
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
+  - name: otlp-http
+    port: 4318
+    targetPort: 4318

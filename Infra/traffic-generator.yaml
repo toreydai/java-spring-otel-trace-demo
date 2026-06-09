@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: continuous-traffic-generator
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: continuous-traffic-generator
+  template:
+    metadata:
+      labels:
+        app: continuous-traffic-generator
+    spec:
+      containers:
+      - name: traffic-generator
+        image: curlimages/curl:latest
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            echo "启动持续流量生成器..."
+            GATEWAY_URL="http://gateway-service"
+            
+            while true; do
+              # 模拟真实用户行为 - 更频繁的调用
+              
+              # 1. 查看产品列表
+              curl -s -w "产品API: %{http_code}\n" -o /dev/null "${GATEWAY_URL}/api/products"
+              sleep 5
+              
+              # 2. 查看用户信息  
+              curl -s -w "用户API: %{http_code}\n" -o /dev/null "${GATEWAY_URL}/api/users"
+              sleep 5
+              
+              # 3. 创建订单 (最复杂的调用链)
+              curl -s -w "订单API: %{http_code}\n" -o /dev/null "${GATEWAY_URL}/api/orders"
+              sleep 10
+              
+              # 4. 再次查看订单状态
+              curl -s -w "订单查询: %{http_code}\n" -o /dev/null "${GATEWAY_URL}/api/orders"
+              sleep 5
+              
+              echo "$(date): 完成一轮业务流量循环"
+            done
+        resources:
+          limits:
+            memory: 32Mi
+            cpu: 50m
+          requests:
+            cpu: 10m
+            memory: 16Mi
